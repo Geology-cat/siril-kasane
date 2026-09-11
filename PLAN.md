@@ -481,7 +481,7 @@ JSON は `schema_version` を持たせ、後方互換のマイグレーション
 | Phase 2 複数セッション | 実装完了・統合テスト済み | セッションはフォルダ（種別フォルダを読み飛ばした親）または撮影日（正午区切り）で自動判定。セッション × 条件でキャリブレーションし、同じ条件は `merge` で結合して 1 本にスタック。合成 2 夜データで `siril-cli` 実行成功（12 枚 → 360s） |
 | 名称変更 | 完了 | ユーザー要望で SirilWBPP → **Kasane（重ね）** に改名（2026-09-11） |
 | Phase 3 品質・利便性 | 実装完了・統合テスト済み | 品質レポート（`.seq` の登録データと `r_` 側の採否から CSV + ログ要約 + GUI ダイアログ）、マスターライブラリ（保存 / 自動マッチ / Library タブ）、スタック方式の選択（rej / med / sum / max / min）。ライブラリだけで再キャリブレーションする統合テストと、フィルタで 5 枚除外されるレポートを `siril-cli` で確認 |
-| Phase 4 仕上げ | 未着手 | 単一ファイル化、他 OS 確認 |
+| Phase 4 仕上げ | 完了 | 単一ファイル版ビルド（`tools/build_single_file.py`、zip を base64 埋め込みして zipimport）、「すべてクリア」ボタン、LICENSE / CHANGELOG / README の配布手順。GitHub `Geology-cat/siril-kasane` に公開し v1.0.0 リリースで `Kasane.py` を配布（2026-09-11）。Windows / Linux は未検証 |
 
 開発上の注意:
 - Siril 同梱 Python（`Siril.app/Contents/Frameworks/Python.framework`）は端末から直接起動すると SIGKILL されるため、ユニットテストは `.venv`（pyenv の Python 3.11）で実行する
