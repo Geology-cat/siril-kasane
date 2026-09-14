@@ -48,15 +48,32 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
     elif not work_root.parent.exists():
         err(f"作業フォルダの親が存在しません: {work_root.parent}")
 
-    # センサー
-    if project.sensor not in ("osc", "mono"):
+    # センサー / 非線形画像
+    nonlinear = project.is_nonlinear
+    if nonlinear:
+        info("非線形画像モード（JPEG / PNG / TIFF）: キャリブレーションと Drizzle は行わず、位置合わせとスタックだけ行います。"
+             "8bit JPEG は階調が粗いため 16bit TIFF を推奨します")
+        n_lin = sum(1 for f in project.lights if f.source != "image")
+        if n_lin:
+            warn(f"Light に RAW / FITS が {n_lin} 枚混ざっています。非線形画像として扱われます")
+        if project.dark_pool or project.flat_pool or project.bias_pool or project.darkflat_pool:
+            warn("非線形画像モードでは Dark / Flat / Bias / Dark Flat は使われません")
+        if s.registration.method == "global":
+            r = s.registration
+            if any(f.enabled for f in (r.filter_wfwhm, r.filter_round, r.filter_fwhm, r.filter_quality)):
+                info("wFWHM / 真円度 / FWHM / 品質フィルタは非線形画像では無効になります（星数・背景フィルタは使えます）")
+        if s.drizzle.enabled:
+            info("Drizzle は非線形画像では無効になります")
+    elif project.sensor not in ("osc", "mono"):
         err("センサー種別を判定できません。Frames タブで OSC / Mono を指定してください")
     elif project.sensor_override == "auto":
         info(f"センサー種別: {'OSC（カラー）' if project.is_osc else 'Mono'}（自動判定）")
+    if s.registration.method == "none":
+        info("位置合わせを行いません。固定三脚の軌跡合成や、位置合わせ済みの画像向けです。品質フィルタとレポートは使えません")
 
     # 入力形式の混在
     sources = {f.source for f in project.lights}
-    if len(sources) > 1:
+    if len(sources) > 1 and not nonlinear:
         warn("Light に RAW と FITS が混在しています。グループが分かれて別々にスタックされます")
     bad = [f for f in project.all_frames() if f.error]
     if bad:
@@ -80,6 +97,10 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
 
     for g in project.groups:
         prefix = f"[{g.group_id} {g.label}] "
+        if nonlinear:
+            if len(g.frames) < 3 and s.stacking.method == "rej":
+                warn(prefix + f"Light が {len(g.frames)} 枚しかありません。rejection スタックには 3 枚以上必要です")
+            continue
         if c.use_dark:
             if not g.dark.is_available:
                 warn(prefix + f"Dark がありません（{g.dark.note}）。Dark なしでキャリブレーションします")
@@ -117,7 +138,7 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
         info(f"Light は条件の違う {len(keys)} グループに分かれ、それぞれ別にスタックされます")
 
     # Drizzle
-    if s.drizzle.enabled and project.is_osc:
+    if s.drizzle.enabled and project.is_osc and not nonlinear:
         info("Bayer Drizzle: Light はデベイヤーせずに処理します")
     if s.drizzle.enabled and len(project.lights) < 10:
         warn("Drizzle は枚数が少ないと効果が薄く、穴が残ることがあります（10 枚以上推奨）")

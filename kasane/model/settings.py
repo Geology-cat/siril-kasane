@@ -47,6 +47,17 @@ WEIGHT_TYPES: dict[str, str] = {
     "nbstars": "星数",
 }
 
+REGISTRATION_METHODS: dict[str, str] = {
+    "global": "Global Star Alignment（星による位置合わせ）",
+    "none": "位置合わせしない（固定三脚の軌跡合成や、位置合わせ済み画像）",
+}
+
+OUTPUT_FORMATS: dict[str, str] = {
+    "fit": "FITS（32bit）",
+    "tif": "TIFF（16bit）",
+    "both": "FITS と TIFF の両方",
+}
+
 TRANSFORM_TYPES: dict[str, str] = {
     "homography": "Homography（既定）",
     "affine": "Affine",
@@ -141,6 +152,7 @@ class CalibrationSettings:
 
 @dataclass
 class RegistrationSettings:
+    method: str = "global"  # REGISTRATION_METHODS
     two_pass: bool = True
     transf: str = "homography"
     minpairs: int = 10
@@ -185,6 +197,7 @@ class StackingSettings:
 class OutputSettings:
     # {target} = Light の親フォルダ名、{filter} = フィルター名（Mono）、{group} = グループ ID
     name_template: str = "result_{target}{filter_suffix}"
+    format: str = "fit"  # OUTPUT_FORMATS
     mirrorx: str = "auto"  # MIRRORX_MODES
     cleanup_intermediate: bool = True
     write_ssf: bool = True

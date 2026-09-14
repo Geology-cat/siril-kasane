@@ -30,6 +30,8 @@ from ..model.settings import (
     INTERP_TYPES,
     MIRRORX_MODES,
     NORMALIZATION_TYPES,
+    OUTPUT_FORMATS,
+    REGISTRATION_METHODS,
     REJECTION_TYPES,
     STACK_METHODS,
     TRANSFORM_TYPES,
@@ -166,8 +168,11 @@ class RegistrationTab(QWidget):
         super().__init__(parent)
         lay = QVBoxLayout(self)
 
-        box = QGroupBox("レジストレーション（Global Star Alignment）")
+        box = QGroupBox("レジストレーション")
         form = QFormLayout(box)
+        self.method = LabeledCombo(REGISTRATION_METHODS)
+        self.method.currentIndexChanged.connect(lambda _i: self._method_changed())
+        form.addRow("方式:", self.method)
         self.two_pass = QCheckBox("2-pass（最良の参照フレームを自動選択。推奨）")
         self.transf = LabeledCombo(TRANSFORM_TYPES)
         self.minpairs = _spin(0, 1000)
@@ -195,11 +200,20 @@ class RegistrationTab(QWidget):
         self.f_bkg = _FilterRow("背景レベル")
         for w in (self.f_wfwhm, self.f_round, self.f_nbstars, self.f_fwhm, self.f_quality, self.f_bkg):
             v.addWidget(w)
+        self.filter_box = box
         lay.addWidget(box)
         lay.addStretch()
+        self._method_changed()
+
+    def _method_changed(self) -> None:
+        on = self.method.value() == "global"
+        for w in (self.two_pass, self.transf, self.minpairs, self.maxstars, self.interp, self.clamping, self.framing,
+                  self.filter_box):
+            w.setEnabled(on)
 
     def load(self, s: Settings) -> None:
         r = s.registration
+        self.method.set_value(r.method)
         self.two_pass.setChecked(r.two_pass)
         self.transf.set_value(r.transf)
         self.minpairs.setValue(r.minpairs)
@@ -216,6 +230,7 @@ class RegistrationTab(QWidget):
 
     def store(self, s: Settings) -> None:
         r = s.registration
+        r.method = self.method.value()
         r.two_pass = self.two_pass.isChecked()
         r.transf = self.transf.value()
         r.minpairs = self.minpairs.value()
@@ -349,6 +364,7 @@ class OutputTab(QWidget):
         box = QGroupBox("出力")
         form = QFormLayout(box)
         self.name_template = QLineEdit()
+        self.format = LabeledCombo(OUTPUT_FORMATS)
         self.mirrorx = LabeledCombo(MIRRORX_MODES)
         self.cleanup = QCheckBox("完了後に中間ファイル（process/ と input/）を削除する")
         self.write_ssf = QCheckBox("実行するコマンド列を commands.ssf として保存する")
@@ -356,6 +372,7 @@ class OutputTab(QWidget):
         form.addRow("ファイル名テンプレート:", self.name_template)
         form.addRow(hint("使える変数: {target} 対象名、{filter} フィルター名、{filter_suffix} = \"_フィルター名\"（Mono 以外は空）、{group} グループ ID。"
                          "末尾に積算時間（例 _3600s）が自動で付きます。"))
+        form.addRow("保存形式:", self.format)
         form.addRow("上下反転（mirrorx）:", self.mirrorx)
         form.addRow(self.cleanup)
         form.addRow(self.write_ssf)
@@ -374,6 +391,7 @@ class OutputTab(QWidget):
     def load(self, s: Settings) -> None:
         o = s.output
         self.name_template.setText(o.name_template)
+        self.format.set_value(o.format)
         self.mirrorx.set_value(o.mirrorx)
         self.cleanup.setChecked(o.cleanup_intermediate)
         self.write_ssf.setChecked(o.write_ssf)
@@ -384,6 +402,7 @@ class OutputTab(QWidget):
     def store(self, s: Settings) -> None:
         o = s.output
         o.name_template = self.name_template.text().strip() or "result_{target}{filter_suffix}"
+        o.format = self.format.value()
         o.mirrorx = self.mirrorx.value()
         o.cleanup_intermediate = self.cleanup.isChecked()
         o.write_ssf = self.write_ssf.isChecked()

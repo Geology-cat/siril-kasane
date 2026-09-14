@@ -53,6 +53,8 @@ def estimate(project: Project, work_root: Path) -> DiskEstimate:
     if project.is_raw:
         detail["変換後 (RAW→FITS)"] = int(n_light * px * 2)
         detail["変換後 (キャリブ用)"] = int(n_cal * px * 2)
+    elif project.is_nonlinear:
+        detail["変換後 (画像→FITS)"] = int(n_light * px * 2 * 3)
     detail["キャリブ後 (pp_)"] = int(n_light * px * bytes_per_px * planes_pp)
     detail["登録後 (r_)"] = int(n_light * px * bytes_per_px * planes_pp * drizzle_area)
     if planes_pp == 1 and project.is_osc:

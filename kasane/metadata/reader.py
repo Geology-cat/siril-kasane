@@ -19,10 +19,43 @@ RAW_EXTENSIONS = {
 }
 # FITS 圧縮 (.fz) は Siril は読めるがヘッダ位置が異なるので現状メタデータ無しで扱う
 OTHER_EXTENSIONS = {".fz"}
+# 非線形（ストレッチ済み / 現像済み）画像。キャリブレーション無しで位置合わせとスタックだけ行う
+NONLINEAR_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".heif", ".avif", ".bmp"}
+# exifread が EXIF を読める非線形形式
+_EXIF_CAPABLE = {".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif"}
 
 
 def is_supported(path: Path) -> bool:
-    return path.suffix.lower() in FITS_EXTENSIONS | RAW_EXTENSIONS | OTHER_EXTENSIONS
+    return path.suffix.lower() in FITS_EXTENSIONS | RAW_EXTENSIONS | OTHER_EXTENSIONS | NONLINEAR_EXTENSIONS
+
+
+def is_nonlinear(path: Path) -> bool:
+    return path.suffix.lower() in NONLINEAR_EXTENSIONS
+
+
+def image_size(path: Path) -> Optional[tuple[int, int]]:
+    """PNG / JPEG のヘッダから画像サイズを読む（デコードしない）。読めなければ None"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(32)
+            if head.startswith(b"\x89PNG\r\n\x1a\n") and head[12:16] == b"IHDR":
+                return int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+            if head[:2] == b"\xff\xd8":
+                f.seek(2)
+                while True:
+                    marker = f.read(2)
+                    if len(marker) < 2 or marker[0] != 0xFF:
+                        return None
+                    if marker[1] in (0xD8, 0x01) or 0xD0 <= marker[1] <= 0xD7:
+                        continue
+                    length = int.from_bytes(f.read(2), "big")
+                    if marker[1] in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                        data = f.read(5)
+                        return int.from_bytes(data[3:5], "big"), int.from_bytes(data[1:3], "big")
+                    f.seek(length - 2, 1)
+    except OSError:
+        return None
+    return None
 
 
 def read_frame(path: Path, kind: FrameKind) -> FrameInfo:
@@ -42,6 +75,18 @@ def read_frame(path: Path, kind: FrameKind) -> FrameInfo:
         elif ext in RAW_EXTENSIONS:
             info.source = "raw"
             values = raw_reader.extract(path)
+        elif ext in NONLINEAR_EXTENSIONS:
+            info.source = "image"
+            values = {"sensor": "rgb", "binning": 1}
+            size = image_size(path)
+            if size:
+                values["width"], values["height"] = size
+            if ext in _EXIF_CAPABLE:
+                try:
+                    ex = raw_reader.extract(path)
+                    values.update({k: ex[k] for k in ("exposure", "iso_or_gain", "date_obs", "instrument")})
+                except Exception:
+                    pass  # EXIF が無い書き出し画像は条件不明のまま扱う
         else:
             info.source = "fits"
             values = {}
@@ -53,6 +98,11 @@ def read_frame(path: Path, kind: FrameKind) -> FrameInfo:
         if ext in RAW_EXTENSIONS:
             info.sensor = "osc"
             info.binning = 1
+        elif ext in NONLINEAR_EXTENSIONS:
+            info.source = "image"
+            info.sensor = "rgb"
+            info.binning = 1
+            info.error = None  # メタデータが無いのは正常
     return info
 
 

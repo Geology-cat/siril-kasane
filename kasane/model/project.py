@@ -53,8 +53,8 @@ class FrameInfo:
 
     path: Path
     kind: FrameKind
-    source: str = "fits"  # "raw" | "fits"
-    sensor: str = "unknown"  # "osc" | "mono" | "unknown"
+    source: str = "fits"  # "raw" | "fits" | "image"（非線形: JPEG / PNG / TIFF）
+    sensor: str = "unknown"  # "osc" | "mono" | "rgb"（非線形画像） | "unknown"
     bayer_pattern: Optional[str] = None
     exposure: Optional[float] = None  # 秒
     iso_or_gain: Optional[float] = None  # DSLR: ISO、CMOS: GAIN
@@ -320,8 +320,18 @@ class Project:
     def all_frames(self) -> list[FrameInfo]:
         return self.lights + self.dark_pool + self.flat_pool + self.bias_pool + self.darkflat_pool
 
+    @property
+    def is_nonlinear(self) -> bool:
+        """Light が非線形画像（JPEG / PNG / TIFF）かどうか（多数決）。キャリブレーションは行わない"""
+        if not self.lights:
+            return False
+        n = sum(1 for f in self.lights if f.source == "image")
+        return n * 2 > len(self.lights)
+
     def detected_sensor(self) -> str:
         """Light のメタデータから判定したセンサー種別（多数決）"""
+        if self.is_nonlinear:
+            return "rgb"
         votes: dict[str, int] = {}
         for f in self.lights:
             votes[f.sensor] = votes.get(f.sensor, 0) + 1
@@ -335,7 +345,9 @@ class Project:
 
     @property
     def sensor(self) -> str:
-        """実際に処理で使うセンサー種別"""
+        """実際に処理で使うセンサー種別。非線形画像は常に rgb（CFA 処理を行わない）"""
+        if self.is_nonlinear:
+            return "rgb"
         if self.sensor_override in ("osc", "mono"):
             return self.sensor_override
         return self.detected_sensor()

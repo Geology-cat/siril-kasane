@@ -60,6 +60,7 @@ class Planner:
         self._counter: dict[FrameKind, int] = {}
         self._bias_flat_needed = False
         self._output_names: dict[str, str] = {}
+        self._set_frames: dict[str, list[FrameInfo]] = {}  # 出力名 → 含まれる Light（保存名のサフィックス用）
 
     # ---- マスターの登録 -----------------------------------------------------
 
@@ -102,13 +103,25 @@ class Planner:
         s = self.settings
         if not p.groups:
             raise PlanError("Light がありません")
-        if p.sensor not in ("osc", "mono"):
+        if p.sensor not in ("osc", "mono", "rgb"):
             raise PlanError("センサー種別（OSC / Mono）を判定できません。手動で指定してください")
+        nonlinear = p.is_nonlinear
+        if nonlinear:
+            self.plan.summary.append("非線形画像モード: キャリブレーション（Dark / Flat / Bias）は行いません")
+            if s.drizzle.enabled:
+                self.plan.summary.append("非線形画像モード: Drizzle は使えないため無効にします")
+            r = s.registration
+            if r.method == "global" and any(f.enabled for f in (r.filter_wfwhm, r.filter_round, r.filter_fwhm, r.filter_quality)):
+                self.plan.summary.append("非線形画像モード: ストレッチ済みの星像では FWHM / 真円度が計算できないことがあるため、"
+                                         "wFWHM / 真円度 / FWHM / 品質フィルタは無効にします（星数・背景フィルタは有効）")
 
         # 1) グループごとの依存マスターを集める
         group_jobs: dict[str, dict[str, Optional[MasterJob]]] = {}
         for g in p.groups:
             jobs: dict[str, Optional[MasterJob]] = {"dark": None, "flat": None, "bias": None, "darkflat": None}
+            if nonlinear:
+                group_jobs[g.group_id] = jobs
+                continue
             if s.calibration.use_dark:
                 jobs["dark"] = self._register_master(FrameKind.DARK, g.dark, g.group_id)
             if s.calibration.use_flat:
@@ -144,6 +157,7 @@ class Planner:
                 )
             flat_job = next((group_jobs[g.group_id]["flat"] for g in gs if group_jobs[g.group_id]["flat"]), None)
             set_dir = self.work.process_dir(f"s{i:02d}") if len(gs) > 1 else self.work.process_dir(gs[0].group_id)
+            self._set_frames[out_name] = [f for g in gs for f in g.frames]
             self._add_stack_set(gs, seq, flat_job, set_dir, out_name)
 
         # 5) 仕上げ
@@ -378,6 +392,12 @@ class Planner:
             ph = f"Light {groups[0].group_id}: {groups[0].label}"
 
         r = s.registration
+        nonlinear = p.is_nonlinear
+        if r.method == "none":
+            # 位置合わせしない: 変換後（キャリブ後）のシーケンスをそのままスタックする
+            self.plan.summary.append(f"{out_name}: 位置合わせを行わずにスタックします")
+            self._add_stack_cmd(seq, set_dir, out_name, n, ph, osc, filter_args=[], registered=False)
+            return
         reg_args: list[str] = []
         if r.transf != "homography":
             reg_args.append(f"-transf={r.transf}")
@@ -393,7 +413,7 @@ class Planner:
         if r.framing != "current":
             apply_args.append(f"-framing={r.framing}")
         d = s.drizzle
-        if d.enabled:
+        if d.enabled and not nonlinear:
             apply_args.append("-drizzle")
             if d.scale != 1.0:
                 apply_args.append(f"-scale={d.scale:g}")
@@ -402,17 +422,20 @@ class Planner:
                 apply_args.append(f"-kernel={d.kernel}")
             if d.use_flat and flat_job is not None:
                 apply_args.append(f"-flat={flat_job.rel_from_process}")
+        psf_filters = () if nonlinear else (
+            r.filter_fwhm.to_arg("fwhm"),
+            r.filter_wfwhm.to_arg("wfwhm"),
+            r.filter_round.to_arg("round"),
+            r.filter_quality.to_arg("quality"),
+        )
         filter_args = [
             a for a in (
-                r.filter_fwhm.to_arg("fwhm"),
-                r.filter_wfwhm.to_arg("wfwhm"),
-                r.filter_round.to_arg("round"),
+                *psf_filters,
                 r.filter_bkg.to_arg("bkg"),
                 r.filter_nbstars.to_arg("nbstars"),
-                r.filter_quality.to_arg("quality"),
             ) if a
         ]
-        drz_w = 3.0 if d.enabled else 2.0
+        drz_w = 3.0 if (d.enabled and not nonlinear) else 2.0
         if r.two_pass:
             self.plan.steps.append(Step.cmd("レジストレーション（2-pass、変換行列のみ）", "register", seq, "-2pass", *reg_args,
                                             weight=2.0 * n, phase=ph))
@@ -424,7 +447,13 @@ class Planner:
                                             weight=(2.0 + drz_w) * n, phase=ph))
             stack_filter_args = [*filter_args, "-filter-included"]
         seq = f"r_{seq}"
+        self._add_stack_cmd(seq, set_dir, out_name, n, ph, osc, stack_filter_args, registered=True, groups=groups)
 
+    def _add_stack_cmd(self, seq: str, set_dir: Path, out_name: str, n: int, ph: str, osc: bool,
+                       filter_args: list[str], registered: bool, groups: Optional[list[LightGroup]] = None) -> None:
+        """stack コマンドと（位置合わせ済みなら）品質レポートのステップを追加する"""
+        s = self.settings
+        work = self.work
         st = s.stacking
         stack_args: list[str] = []
         method = st.method if st.method in ("rej", "med", "sum", "max", "min") else "rej"
@@ -444,7 +473,7 @@ class Planner:
             if st.rgb_equal and osc:
                 stack_args.append("-rgb_equal")
         if method == "rej":
-            if st.weight != "none":
+            if st.weight != "none" and registered:
                 stack_args.append(f"-weight={st.weight}")
             if st.feather > 0:
                 stack_args.append(f"-feather={st.feather}")
@@ -452,10 +481,12 @@ class Planner:
             stack_args.append("-output_norm")
         if st.bits32:
             stack_args.append("-32b")
-        stack_args += stack_filter_args
+        stack_args += filter_args
         stack_args.append(f"-out=../../output/{out_name}")
         self.plan.steps.append(Step.cmd(f"スタック → output/{out_name}", "stack", seq, *stack_args, weight=1.5 * n, phase=ph))
         self.plan.outputs.append(work.output / out_name)
+        if not registered or groups is None:
+            return
 
         # 品質レポート（登録データは入力側の .seq、採否は r_ 側の .seq）
         in_seq = seq[2:]  # "r_" を外す
@@ -483,13 +514,24 @@ class Planner:
         ph = "仕上げ"
         mirror = s.output.mirrorx == "on" or (s.output.mirrorx == "auto" and p.is_raw)
         self.plan.steps.append(Step.cmd("出力フォルダへ", "cd", _quote(work.output), weight=0.1, phase=ph))
+        fmt = s.output.format if s.output.format in ("fit", "tif", "both") else "fit"
         for name in names:
+            frames = self._set_frames.get(name, [])
+            # 露出が全フレームで分かるときだけ Siril の $LIVETIME トークン（積算秒）を使う。
+            # EXIF の無い書き出し画像などでは展開されない（"LIVETIMEs" のまま残る）ので枚数を付ける
+            if frames and all(f.exposure for f in frames):
+                saved = f"{name}_$LIVETIME:%d$s"
+                desc = "積算時間付きの名前で保存"
+            else:
+                saved = f"{name}_{len(frames)}frames"
+                desc = "枚数付きの名前で保存"
             self.plan.steps.append(Step.cmd(f"{name} を読込", "load", name, weight=0.3, phase=ph))
             if mirror:
                 self.plan.steps.append(Step.cmd("上下反転（DSLR の向き補正）", "mirrorx", "-bottomup", weight=0.3, phase=ph))
-            self.plan.steps.append(
-                Step.cmd("積算時間付きの名前で保存", "save", f"{name}_$LIVETIME:%d$s", weight=0.3, phase=ph)
-            )
+            if fmt in ("fit", "both"):
+                self.plan.steps.append(Step.cmd(f"{desc}（FITS）", "save", saved, weight=0.3, phase=ph))
+            if fmt in ("tif", "both"):
+                self.plan.steps.append(Step.cmd(f"{desc}（16bit TIFF）", "savetif", saved, weight=0.3, phase=ph))
 
             def _remove_plain(ctx, _name=name):
                 plain = ctx.work.output / f"{_name}.fit"
@@ -509,7 +551,7 @@ class Planner:
             first = names[0]
 
             def _open(ctx, _name=first):
-                cands = sorted(ctx.work.output.glob(f"{_name}_*.fit"))
+                cands = sorted(ctx.work.output.glob(f"{_name}_*.fit")) or sorted(ctx.work.output.glob(f"{_name}_*.tif"))
                 if cands:
                     ctx.siril.cmd("load", _quote(cands[-1]))
                     ctx.logger.ok(f"結果を開きました: {cands[-1].name}")

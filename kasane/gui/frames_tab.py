@@ -38,7 +38,8 @@ from ..metadata.reader import collect_files, read_frames
 from ..model import FrameInfo, FrameKind, MasterSource, Project
 from .widgets import DropTreeWidget, LabeledCombo, PathPicker, confirm, hint
 
-FILE_FILTER = "画像 (*.fit *.fits *.fts *.cr2 *.cr3 *.nef *.arw *.raf *.orf *.rw2 *.pef *.dng);;すべて (*)"
+FILE_FILTER = ("画像 (*.fit *.fits *.fts *.cr2 *.cr3 *.nef *.arw *.raf *.orf *.rw2 *.pef *.dng "
+               "*.jpg *.jpeg *.png *.tif *.tiff *.heic *.avif);;すべて (*)")
 COLOR_WARN = QColor(200, 120, 0)
 COLOR_ERR = QColor(200, 40, 40)
 COLOR_OK = QColor(40, 140, 60)
@@ -455,9 +456,17 @@ class FramesTab(QWidget):
         )
         det = project.detected_sensor()
         self.sensor_detected.setText(
-            {"osc": "→ 判定: OSC（カラー）", "mono": "→ 判定: Mono", "unknown": "→ 判定できません（手動で選択してください）"}[det]
+            {"osc": "→ 判定: OSC（カラー）", "mono": "→ 判定: Mono", "rgb": "→ 非線形画像（キャリブレーションなし）",
+             "unknown": "→ 判定できません（手動で選択してください）"}[det]
             if self.lights else ""
         )
+        # 非線形画像ではキャリブレーションフレームを使わないので入力欄を無効化する
+        nonlinear = project.is_nonlinear
+        for rb in self.sensor_buttons.values():
+            rb.setEnabled(not nonlinear)
+        for panel in self.panels.values():
+            panel.setEnabled(not nonlinear)
+            panel.setToolTip("非線形画像（JPEG / PNG / TIFF）ではキャリブレーションを行いません" if nonlinear else "")
 
     def _light_context_menu(self, pos) -> None:
         item = self.light_tree.itemAt(pos)

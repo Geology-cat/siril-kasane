@@ -74,9 +74,9 @@ def parse_seq(path: Path) -> SeqData:
             pos += 1
             try:
                 d.reg[d.start_index + pos - 1] = RegRow(
-                    fwhm=float(parts[1]),
-                    wfwhm=float(parts[2]),
-                    roundness=float(parts[3]),
+                    fwhm=_float(parts[1]),
+                    wfwhm=_float(parts[2]),
+                    roundness=_float(parts[3]),
                     quality=float(parts[4]),
                     background=float(parts[5]),
                     nb_stars=int(float(parts[6])),
@@ -84,6 +84,14 @@ def parse_seq(path: Path) -> SeqData:
             except ValueError:
                 continue
     return d
+
+
+def _float(text: str) -> float:
+    try:
+        v = float(text)
+    except ValueError:
+        return 0.0
+    return 0.0 if v != v else v  # NaN → 0
 
 
 @dataclass
@@ -117,16 +125,26 @@ class QualityReport:
         lines = [f"{self.title}: 採用 {self.n_included} / {self.n_total} 枚"]
         ref = next((r for r in self.rows if r.reference), None)
         if ref is not None:
-            lines.append(f"  参照フレーム: {ref.name}" + (f"（wFWHM {ref.reg.wfwhm:.2f}）" if ref.reg else ""))
-        wf = [r.reg.wfwhm for r in self.rows if r.reg and r.included]
+            lines.append(f"  参照フレーム: {ref.name}" + (f"（wFWHM {ref.reg.wfwhm:.2f}）" if _has_psf(ref.reg) else ""))
+        wf = [r.reg.wfwhm for r in self.rows if r.included and _has_psf(r.reg)]
+        n_nopsf = sum(1 for r in self.rows if r.reg and not _has_psf(r.reg))
         if wf:
             lines.append(f"  採用フレームの wFWHM: 最良 {min(wf):.2f} / 中央 {sorted(wf)[len(wf) // 2]:.2f} / 最悪 {max(wf):.2f} px")
+        if n_nopsf:
+            lines.append(f"  FWHM を計測できなかったフレーム: {n_nopsf} 枚（ストレッチ済み画像で星像が飽和している場合など）")
         for r in self.excluded():
             detail = ""
-            if r.reg:
+            if _has_psf(r.reg):
                 detail = f"  wFWHM {r.reg.wfwhm:.2f}  真円度 {r.reg.roundness:.3f}  星数 {r.reg.nb_stars}"
+            elif r.reg:
+                detail = f"  星数 {r.reg.nb_stars}（FWHM 計測不可）"
             lines.append(f"  除外: {r.name}{detail}")
         return lines
+
+
+def _has_psf(reg: Optional[RegRow]) -> bool:
+    """FWHM が実際に計測できているか（0 や NaN は計測失敗）"""
+    return reg is not None and reg.wfwhm > 0 and reg.wfwhm == reg.wfwhm
 
 
 CSV_HEADER = ["index", "file", "included", "reference", "fwhm", "wfwhm", "roundness", "quality", "background", "nb_stars", "path"]
