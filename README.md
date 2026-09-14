@@ -26,6 +26,19 @@ Light / Dark / Flat / Bias をドラッグ&ドロップして RUN するだけ�
 - Siril 1.4.0 以降（1.4.4 で開発・検証）
 - macOS で検証済み。Windows / Linux は未検証ですが OS 依存の処理は避けています（symlink が使えない環境ではコピーにフォールバックします）
 - 依存パッケージ（PyQt6, exifread）は初回起動時に Siril の Python 環境へ自動導入されます
+- **初回起動時のみインターネット接続が必要です**（上記パッケージを pip でダウンロードするため。PyQt6 は数十 MB あります）。2 回目以降はオフラインで使えます
+
+### Python は別途インストールが必要？
+
+| Siril の入手方法 | Python の別途インストール |
+|---|---|
+| Windows（公式インストーラー） | 不要（Siril に Python が同梱されています） |
+| macOS（公式パッケージ） | 不要（Siril に Python が同梱されています） |
+| Linux（ディストリビューションのパッケージ） | **必要**: Python 3.9 以上と `venv` / `pip` モジュール。Debian / Ubuntu 系なら `sudo apt install python3-venv python3-pip` |
+| Linux（Flatpak / AppImage） | 未確認 |
+
+Python の仮想環境は Siril が自動で作成・管理するので、利用者が操作する必要はありません。
+FITS ヘッダは Kasane が自前で読むため、astropy などの追加パッケージも不要です。
 
 ## インストール
 
@@ -39,7 +52,8 @@ Light / Dark / Flat / Bias をドラッグ&ドロップして RUN するだけ�
    - フォルダが無ければ作成し、Siril の **環境設定 → スクリプト** で「スクリプトの保存場所」に追加してください
 3. Siril を再起動（またはスクリプトメニューを更新）すると **Scripts → Kasane** に表示されます
 
-初回起動時に PyQt6 と exifread が Siril の Python 環境へ自動導入されます（数十秒かかります）。
+初回起動時に PyQt6 と exifread が Siril の Python 環境へ自動導入されます（数十秒かかります。**インターネット接続が必要**です）。
+Linux でディストリビューションの Siril を使っている場合は、先に Python の `venv` / `pip` モジュールを入れてください（[動作環境](#動作環境)を参照）。
 
 ### ソースから（開発者向け）
 
@@ -117,6 +131,12 @@ python3 Kasane.py --dry-run                                # Siril なしで GUI
 ```
 
 Siril 本体での統合テストは `tools/make_test_project.py` で作った JSON を `siril-cli -s` から `pyscript` で実行します（詳細は `PLAN.md`）。
+
+## うまく起動しないとき
+
+- **初回起動で止まる / パッケージの導入に失敗する**: インターネットに接続した状態で再度起動してください。Siril のログに pip のエラーが出ていれば、その内容を Issues に添えてください
+- **Linux で Python スクリプト自体が動かない**: `python3-venv` と `python3-pip` が入っているか確認してください
+- **Scripts メニューに出ない**: `Kasane.py` を置いたフォルダが Siril の **環境設定 → スクリプト** に登録されているか確認し、Siril を再起動してください
 
 ## 不具合報告
 

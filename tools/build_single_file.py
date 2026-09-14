@@ -36,6 +36,9 @@ DSLR RAW（CR2 など）と CMOS の FITS、OSC / Mono、複数夜のセッシ�
 
 このファイルは kasane パッケージを埋め込んだ単一ファイル版です（tools/build_single_file.py で生成）。
 Siril のスクリプトフォルダ（環境設定 → スクリプト）に置くと Scripts メニューに Kasane が出ます。
+Python は Windows / macOS の公式 Siril に同梱されているため別途インストール不要です
+（Linux のディストリビューション版 Siril は python3-venv / python3-pip が必要）。
+初回起動時のみ、PyQt6 と exifread を自動導入するためインターネット接続が必要です。
 ソースコード: https://github.com/Geology-cat/siril-kasane
 """
 
