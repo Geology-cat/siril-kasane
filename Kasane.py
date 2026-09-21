@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Kasane - WBPP 風バッチ前処理 GUI（Siril 1.4 用）
-Version: 1.1.1
+Version: 1.2.0
 Author: yamashitaujou (Geology-cat)
 Homepage: https://github.com/Geology-cat/siril-kasane
 License: GPL-3.0-or-later

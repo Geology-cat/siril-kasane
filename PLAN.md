@@ -482,6 +482,7 @@ JSON は `schema_version` を持たせ、後方互換のマイグレーション
 | 名称変更 | 完了 | ユーザー要望で SirilWBPP → **Kasane（重ね）** に改名（2026-09-11） |
 | Phase 3 品質・利便性 | 実装完了・統合テスト済み | 品質レポート（`.seq` の登録データと `r_` 側の採否から CSV + ログ要約 + GUI ダイアログ）、マスターライブラリ（保存 / 自動マッチ / Library タブ）、スタック方式の選択（rej / med / sum / max / min）。ライブラリだけで再キャリブレーションする統合テストと、フィルタで 5 枚除外されるレポートを `siril-cli` で確認 |
 | 1.1.0 非線形画像モード | 完了・統合テスト済み（2026-09-14） | JPEG / PNG / TIFF をキャリブレーション無しで位置合わせ → スタック。ストレッチ済み星像では FWHM が NaN になり PSF 系フィルタで参照フレームまで除外されて中断するため、PSF 系フィルタを自動無効化。「位置合わせしない」と TIFF 出力を追加 |
+| 1.2.0 Flat の過補正防止 | 完了・実データで統合テスト済み（2026-09-22） | Dark なしで Flat を使うと黒レベルまで割られて過補正になる問題。Dark の無いグループでは Bias、無ければ RAW の黒レベル（Canon ColorData / DNG BlackLevel を自前の TIFF パーサで読む）を Light に自動で引く（`pipeline/offset.py`）。EOS 6D の CR2 23 枚 + 合成 Flat を `siril-cli` で実行し、空の上端の右端/中央が 2.88 → 1.12。「すべてクリア」でマスター指定・対象名・作業フォルダも戻すよう修正 |
 | Phase 4 仕上げ | 完了 | 単一ファイル版ビルド（`tools/build_single_file.py`、zip を base64 埋め込みして zipimport）、「すべてクリア」ボタン、LICENSE / CHANGELOG / README の配布手順。GitHub `Geology-cat/siril-kasane` に公開し v1.0.0 リリースで `Kasane.py` を配布（2026-09-11）。Windows / Linux は未検証 |
 
 開発上の注意:

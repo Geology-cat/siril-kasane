@@ -36,6 +36,7 @@ from .. import grouping
 from ..grouping import SESSION_MODES, SESSION_MODES_HELP
 from ..metadata.reader import collect_files, read_frames
 from ..model import FrameInfo, FrameKind, MasterSource, Project
+from ..pipeline.offset import describe_offset, resolve_light_offset
 from .widgets import DropTreeWidget, LabeledCombo, PathPicker, confirm, hint
 
 FILE_FILTER = ("画像 (*.fit *.fits *.fts *.cr2 *.cr3 *.nef *.arw *.raf *.orf *.rw2 *.pef *.dng "
@@ -43,6 +44,13 @@ FILE_FILTER = ("画像 (*.fit *.fits *.fts *.cr2 *.cr3 *.nef *.arw *.raf *.orf *
 COLOR_WARN = QColor(200, 120, 0)
 COLOR_ERR = QColor(200, 40, 40)
 COLOR_OK = QColor(40, 140, 60)
+# 各種別の既定の供給方法（起動時と「すべてクリア」で使う。Project の既定値と揃える）
+DEFAULT_MODES = {
+    FrameKind.DARK: "frames",
+    FrameKind.FLAT: "frames",
+    FrameKind.BIAS: "none",
+    FrameKind.DARKFLAT: "none",
+}
 
 
 class FrameListPanel(QWidget):
@@ -184,6 +192,18 @@ class FrameListPanel(QWidget):
         self.refresh()
         self.changed.emit()
 
+    def reset(self, mode: str) -> None:
+        """フレーム・マスターファイル・固定値・モードを初期状態に戻す（シグナルは出さない）"""
+        self.blockSignals(True)
+        try:
+            self.frames.clear()
+            self.master_picker.set_path(None)
+            self.constant.setValue(2048)
+            self.set_mode(mode)
+            self.refresh()
+        finally:
+            self.blockSignals(False)
+
     def remove_selected(self) -> None:
         sel = {id(item.data(0, Qt.ItemDataRole.UserRole)) for item in self.tree.selectedItems()}
         self.frames = [f for f in self.frames if id(f) not in sel]
@@ -255,7 +275,8 @@ class FramesTab(QWidget):
         self.btn_bulk.clicked.connect(self._bulk_add)
         top.addWidget(self.btn_bulk)
         self.btn_clear_all = QPushButton("すべてクリア")
-        self.btn_clear_all.setToolTip("Light / Dark / Flat / Bias / Dark Flat の投入と、グループの上書き設定をすべて消します")
+        self.btn_clear_all.setToolTip("Light / Dark / Flat / Bias / Dark Flat の投入とマスター指定、グループの上書き設定、"
+                                      "対象名、作業フォルダをすべて初期状態に戻します")
         self.btn_clear_all.clicked.connect(self._clear_all)
         top.addWidget(self.btn_clear_all)
         outer.addLayout(top)
@@ -307,10 +328,8 @@ class FramesTab(QWidget):
             {"frames": "フレーム", "master_file": "マスター", "library": "ライブラリ", "constant": "固定値",
              "offset_keyword": "64×$OFFSET", "none": "なし"})
         self.panels[FrameKind.DARKFLAT] = FrameListPanel(FrameKind.DARKFLAT, dict(basic))
-        self.panels[FrameKind.DARK].set_mode("frames")
-        self.panels[FrameKind.FLAT].set_mode("frames")
-        self.panels[FrameKind.BIAS].set_mode("none")
-        self.panels[FrameKind.DARKFLAT].set_mode("none")
+        for kind, mode in DEFAULT_MODES.items():
+            self.panels[kind].set_mode(mode)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         inner = QWidget()
@@ -365,18 +384,24 @@ class FramesTab(QWidget):
 
     def _clear_all(self) -> None:
         total = len(self.lights) + sum(len(p.frames) for p in self.panels.values())
-        if total and not confirm(self, "すべてクリア", f"投入済みの {total} 枚とグループの上書き設定をすべて消します。よろしいですか？"):
+        masters = sum(1 for p in self.panels.values() if p.master_picker.path() is not None)
+        what = f"投入済みの {total} 枚" if total else "投入済みのフレーム"
+        if masters:
+            what += f"、マスターファイルの指定 {masters} 件"
+        if not confirm(self, "すべてクリア",
+                       f"{what}、グループの上書き設定、対象名、作業フォルダをすべて初期状態に戻します。よろしいですか？"):
             return
         self.clear_all()
 
     def clear_all(self) -> None:
-        """全種別のフレームを消す（確認なし）。上書き設定の解除は clear_all_requested でメインウィンドウが行う"""
+        """
+        全種別のフレームとマスターファイル・固定値・モードを初期状態に戻す（確認なし）。
+        上書き設定・対象名・作業フォルダは clear_all_requested でメインウィンドウが戻す
+        """
         self.lights.clear()
-        for panel in self.panels.values():
-            panel.blockSignals(True)
-            panel.frames.clear()
-            panel.refresh()
-            panel.blockSignals(False)
+        for kind, panel in self.panels.items():
+            panel.reset(DEFAULT_MODES[kind])
+        self.sensor_buttons["auto"].setChecked(True)
         self.clear_all_requested.emit()
         self.changed.emit()
 
@@ -433,6 +458,14 @@ class FramesTab(QWidget):
             font = top.font(0)
             font.setBold(True)
             top.setFont(0, font)
+            off = resolve_light_offset(project, g)
+            if off.mode == "missing":
+                top.setForeground(4, COLOR_ERR)
+            elif off.is_auto:
+                top.setForeground(4, COLOR_OK)
+            note = describe_offset(off)
+            if note:
+                top.setToolTip(4, note)
             for col, src in ((2, g.dark), (3, g.flat)):
                 if src.mode == "none":
                     top.setForeground(col, COLOR_ERR)
@@ -556,7 +589,14 @@ def _ms_text(src: MasterSource, used: bool) -> str:
 def _bias_text(g, project: Project) -> str:
     c = project.settings.calibration
     parts = []
-    if c.flat_calib_mode == "bias" or c.use_bias_for_light:
+    off = resolve_light_offset(project, g)
+    if off.mode == "auto_black":
+        parts.append(f"B(自動): 黒レベル {off.black_level:g}")
+    elif off.mode == "auto_bias":
+        parts.append("B(自動): " + _ms_text(g.bias, True))
+    elif off.mode == "missing":
+        parts.append("B: なし ⚠ 過補正")
+    elif c.flat_calib_mode == "bias" or c.use_bias_for_light:
         parts.append("B: " + _ms_text(g.bias, True))
     if c.flat_calib_mode == "darkflat":
         parts.append("DF: " + _ms_text(g.darkflat, True))

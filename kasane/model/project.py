@@ -67,6 +67,7 @@ class FrameInfo:
     date_obs: Optional[datetime] = None
     instrument: Optional[str] = None
     image_type: Optional[str] = None  # FITS の IMAGETYP を正規化したもの（light/dark/flat/bias/darkflat）
+    black_level: Optional[float] = None  # RAW の黒レベル [ADU]（Canon ColorData / DNG BlackLevel）。Dark が無いときの Bias に使う
     file_size: int = 0
     session_key: Optional[str] = None
     error: Optional[str] = None  # メタデータ読取り失敗の理由
@@ -364,14 +365,28 @@ class Project:
         raw = sum(1 for f in self.lights if f.source == "raw")
         return raw * 2 >= len(self.lights)
 
+    def light_folder(self) -> Optional[Path]:
+        """Light のフォルダ（lights / raw などの汎用名なら 1 つ上）"""
+        if not self.lights:
+            return None
+        folder = self.lights[0].path.parent
+        if folder.name.lower() in ("lights", "light", "raw", "fits"):
+            folder = folder.parent
+        return folder
+
+    def effective_work_root(self) -> Optional[Path]:
+        """作業フォルダ（この下に Kasane_日時/ を作る）。未指定なら Light のフォルダ内の output/"""
+        if self.work_root is not None:
+            return self.work_root
+        folder = self.light_folder()
+        return folder / "output" if folder is not None else None
+
     def effective_target_name(self) -> str:
         if self.target_name.strip():
             return _sanitize(self.target_name.strip())
-        if self.lights:
-            parent = self.lights[0].path.parent.name
-            if parent.lower() in ("lights", "light", "raw", "fits"):
-                parent = self.lights[0].path.parent.parent.name
-            return _sanitize(parent) or "result"
+        folder = self.light_folder()
+        if folder is not None:
+            return _sanitize(folder.name) or "result"
         return "result"
 
     # ---- 直列化 --------------------------------------------------------------

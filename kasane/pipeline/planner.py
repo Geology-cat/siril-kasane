@@ -19,6 +19,7 @@ from ..model import FrameInfo, FrameKind, GroupKey, LightGroup, MasterSource, Pr
 from ..model.project import SEQ_BASENAME
 from ..report import build_report
 from ..staging import WorkDirs, stage_frames, stage_master, cleanup_intermediate
+from .offset import LightOffset, resolve_light_offset
 from .steps import Plan, Step
 
 
@@ -61,6 +62,7 @@ class Planner:
         self._bias_flat_needed = False
         self._output_names: dict[str, str] = {}
         self._set_frames: dict[str, list[FrameInfo]] = {}  # 出力名 → 含まれる Light（保存名のサフィックス用）
+        self._offsets: dict[str, LightOffset] = {}  # group_id → Light のオフセットの扱い
 
     # ---- マスターの登録 -----------------------------------------------------
 
@@ -128,8 +130,12 @@ class Planner:
                 jobs["flat"] = self._register_master(FrameKind.FLAT, g.flat, g.group_id)
                 if s.calibration.flat_calib_mode == "darkflat":
                     jobs["darkflat"] = self._register_master(FrameKind.DARKFLAT, g.darkflat, g.group_id)
-            need_bias = s.calibration.use_bias_for_light or (
-                s.calibration.use_flat and s.calibration.flat_calib_mode == "bias"
+            off = resolve_light_offset(p, g)
+            self._offsets[g.group_id] = off
+            # Bias が要るのは「Light に引く」ときと「フレームから Flat を作って Bias で補正する」とき。
+            # 既存マスターの Flat はそのまま使うので、Flat 用の Bias は要らない
+            need_bias = off.applies_bias or (
+                s.calibration.use_flat and s.calibration.flat_calib_mode == "bias" and g.flat.mode == "frames"
             )
             if need_bias:
                 jobs["bias"] = self._register_master(FrameKind.BIAS, g.bias, g.group_id)
@@ -346,8 +352,9 @@ class Planner:
             args.append(f"-dark={jobs['dark'].rel_from_process}")
         if jobs["flat"] is not None:
             args.append(f"-flat={jobs['flat'].rel_from_process}")
-        if c.use_bias_for_light:
-            arg = self._bias_arg(g.bias, jobs["bias"])
+        off = self._offsets.get(g.group_id) or resolve_light_offset(p, g)
+        if off.applies_bias and off.source is not None:
+            arg = self._bias_arg(off.source, jobs["bias"] if off.mode in ("bias", "auto_bias") else None)
             if arg:
                 args.append(arg)
         cosmetic = c.cosmetic_enabled and jobs["dark"] is not None

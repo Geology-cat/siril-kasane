@@ -78,6 +78,14 @@ def extract(path: Path) -> dict[str, Any]:
     model = _text(get("Image Model"))
     date = _date(get("EXIF DateTimeOriginal", "Image DateTime"))
 
+    # 黒レベル（Dark が無いとき Flat の過補正を防ぐために引く）。読めなくても致命的ではない
+    try:
+        from .black_level import read_black_level
+
+        black_level = read_black_level(path)
+    except Exception:
+        black_level = None
+
     # 画像サイズは EXIF の値がプレビュー寸法のことがあるので、グループ化には使わない（None）
     return {
         "sensor": "osc",  # DSLR は常に CFA
@@ -93,4 +101,5 @@ def extract(path: Path) -> dict[str, Any]:
         "date_obs": date,
         "instrument": model,
         "image_type": None,  # RAW には種別が無い
+        "black_level": black_level,
     }

@@ -5,7 +5,7 @@ Light / Dark / Flat / Bias をドラッグ&ドロップして RUN するだけ�
 キャリブレーション → レジストレーション → スタックまでを自動実行する。
 """
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 __author__ = "yamashitaujou (Geology-cat)"
 __homepage__ = "https://github.com/Geology-cat/siril-kasane"
 __license__ = "GPL-3.0-or-later"

@@ -99,7 +99,7 @@ class MainWindow(QMainWindow):
         self.target_edit.setMaximumWidth(180)
         top.addWidget(self.target_edit)
         top.addWidget(QLabel("作業フォルダ:"))
-        self.work_picker = PathPicker(mode="dir", placeholder="この下に Kasane_日時/ が作られます")
+        self.work_picker = PathPicker(mode="dir", placeholder="空なら Light のフォルダ内の output/。この下に Kasane_日時/ が作られます")
         top.addWidget(self.work_picker, 1)
         root.addLayout(top)
 
@@ -125,9 +125,10 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.tabs)
         self.frames_tab.changed.connect(self._on_frames_changed)
         self.frames_tab.overrides_changed.connect(self._on_override)
-        self.frames_tab.clear_all_requested.connect(lambda: self.project.overrides.clear())
+        self.frames_tab.clear_all_requested.connect(self._on_clear_all)
         # 設定変更でグループ表示（Bias/DF 列）が変わるので同期する
-        for w in (self.calib_tab.flat_mode, self.calib_tab.use_dark, self.calib_tab.use_flat, self.calib_tab.use_bias_light):
+        for w in (self.calib_tab.flat_mode, self.calib_tab.use_dark, self.calib_tab.use_flat, self.calib_tab.use_bias_light,
+                  self.calib_tab.auto_bias):
             sig = getattr(w, "currentIndexChanged", None) or getattr(w, "toggled", None)
             if sig is not None:
                 sig.connect(lambda *_: self._refresh_groups())
@@ -188,11 +189,7 @@ class MainWindow(QMainWindow):
         else:
             self.project = Project()
             # 既定プリセットはセンサー種別が決まってから選ぶので、まずは Settings() のまま
-        if self.project.work_root is None:
-            try:
-                self.project.work_root = Path(self.siril.get_siril_wd())
-            except Exception:
-                self.project.work_root = Path.home()
+        # 作業フォルダが未指定なら Light のフォルダ内の output/ を使う（Project.effective_work_root）
         self._load_project_to_ui()
 
     def _load_project_to_ui(self) -> None:
@@ -228,6 +225,21 @@ class MainWindow(QMainWindow):
 
     def _on_frames_changed(self) -> None:
         self._refresh_groups()
+
+    def _on_clear_all(self) -> None:
+        """「すべてクリア」: フレームに加え、上書き設定・対象名・作業フォルダも初期状態に戻す"""
+        self.project.overrides.clear()
+        self.project.target_name = ""
+        self.project.work_root = None
+        self._loading = True
+        try:
+            self.target_edit.clear()
+            self.work_picker.set_path(None)
+        finally:
+            self._loading = False
+        # frames_tab の changed シグナルの発火順に依存しないよう、ここでもグループ表示を更新する
+        self._refresh_groups()
+        self.log("すべてクリアしました（フレーム、マスター指定、上書き設定、対象名、作業フォルダ）", "info")
 
     def _on_override(self, gid: str, kind: str, source) -> None:
         if source is None:
@@ -321,7 +333,8 @@ class MainWindow(QMainWindow):
         p = self._store_ui_to_project()
         grouping.build_groups(p, self._library_dir())
         self.frames_tab.refresh_groups(p)
-        work_root = new_work_root(p.work_root) if p.work_root else None
+        base = p.effective_work_root()
+        work_root = new_work_root(base) if base else None
         issues = analyze(p, work_root)
         if not quiet:
             self.log("---- Analyze ----", "info")

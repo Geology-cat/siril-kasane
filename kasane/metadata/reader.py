@@ -98,6 +98,13 @@ def read_frame(path: Path, kind: FrameKind) -> FrameInfo:
         if ext in RAW_EXTENSIONS:
             info.sensor = "osc"
             info.binning = 1
+            # CR3 など exifread が読めない形式でも黒レベルは自前のパーサで読める場合がある
+            try:
+                from .black_level import read_black_level
+
+                info.black_level = read_black_level(path)
+            except Exception:  # noqa: BLE001
+                pass
         elif ext in NONLINEAR_EXTENSIONS:
             info.source = "image"
             info.sensor = "rgb"

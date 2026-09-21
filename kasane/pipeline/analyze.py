@@ -13,6 +13,7 @@ from typing import Optional
 
 from ..model import Project
 from ..util.diskspace import estimate
+from .offset import describe_offset, resolve_light_offset
 
 
 class AnalyzeError(Exception):
@@ -103,7 +104,7 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
             continue
         if c.use_dark:
             if not g.dark.is_available:
-                warn(prefix + f"Dark がありません（{g.dark.note}）。Dark なしでキャリブレーションします")
+                warn(prefix + f"Dark がありません{_paren(g.dark.note)}。Dark なしでキャリブレーションします")
             elif g.dark.note:
                 note_level(g.dark.note)(prefix + f"Dark: {g.dark.note}")
                 if "露出不一致" in g.dark.note:
@@ -113,17 +114,24 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
                         info(prefix + "CMOS はアンプグローのため、露出の一致した Dark を推奨します")
         if c.use_flat:
             if not g.flat.is_available:
-                warn(prefix + f"Flat がありません（{g.flat.note}）。Flat なしでキャリブレーションします")
+                warn(prefix + f"Flat がありません{_paren(g.flat.note)}。Flat なしでキャリブレーションします")
             elif g.flat.note:
                 note_level(g.flat.note)(prefix + f"Flat: {g.flat.note}")
-            if c.flat_calib_mode == "bias" and g.flat.is_available and not g.bias.is_available:
+            # 既存マスターの Flat はそのまま使うので、Flat 用の Bias / Dark Flat は不要
+            flat_from_frames = g.flat.mode == "frames"
+            if c.flat_calib_mode == "bias" and flat_from_frames and not g.bias.is_available:
                 warn(prefix + "Flat 用の Bias がありません。Flat はキャリブレーションせずにスタックします")
-            if c.flat_calib_mode == "darkflat" and g.flat.is_available and not g.darkflat.is_available:
-                warn(prefix + f"Dark Flat がありません（{g.darkflat.note}）。Flat はキャリブレーションせずにスタックします")
+            if c.flat_calib_mode == "darkflat" and flat_from_frames and not g.darkflat.is_available:
+                warn(prefix + f"Dark Flat がありません{_paren(g.darkflat.note)}。Flat はキャリブレーションせずにスタックします")
             if g.darkflat.is_available and g.darkflat.note:
                 note_level(g.darkflat.note)(prefix + f"Dark Flat: {g.darkflat.note}")
         if c.use_bias_for_light and not g.bias.is_available:
             warn(prefix + "Light 用の Bias がありません")
+        # Dark が無いまま Flat で割ると過補正になるので、Bias / 黒レベルを自動で引く（引けなければ警告）
+        off = resolve_light_offset(project, g)
+        note = describe_offset(off)
+        if note:
+            (warn if off.mode == "missing" else info)(prefix + note)
         if len(g.frames) < 3:
             warn(prefix + f"Light が {len(g.frames)} 枚しかありません。rejection スタックには 3 枚以上必要です")
 
@@ -156,3 +164,8 @@ def analyze(project: Project, work_root: Optional[Path]) -> list[Issue]:
             info(est.describe())
 
     return issues
+
+
+def _paren(note: str) -> str:
+    """理由があるときだけ全角括弧で添える"""
+    return f"（{note}）" if note else ""

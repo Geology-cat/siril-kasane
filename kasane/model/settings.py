@@ -138,6 +138,9 @@ class CalibrationSettings:
     use_dark: bool = True
     use_flat: bool = True
     use_bias_for_light: bool = False  # Light に Bias を直接引くか（Dark に含まれるので通常 False）
+    # Dark が無いのに Flat で割ると、黒レベル（オフセット）が周辺ほど持ち上がって過補正になる。
+    # そのときは投入済みの Bias、なければ RAW の黒レベル（固定値）を自動で Light に引く
+    auto_bias_without_dark: bool = True
     flat_calib_mode: str = "bias"  # FLAT_CALIB_MODES
     cosmetic_enabled: bool = True
     cc_sigma_low: float = 0.0  # 0 でコールドピクセル検出を無効化

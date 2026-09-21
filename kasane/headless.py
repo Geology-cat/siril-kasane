@@ -21,7 +21,7 @@ from .util.log import Logger, Level
 
 def prepare_work(project: Project) -> WorkDirs:
     """作業ディレクトリを決めて作成する。project.work_root は「親」として扱い、その下に日時付きフォルダを作る"""
-    base = project.work_root or Path.cwd()
+    base = project.effective_work_root() or Path.cwd()
     root = new_work_root(base)
     work = WorkDirs(root)
     work.create()
@@ -32,7 +32,7 @@ def run_project(project: Project, siril, log_sink=None, is_cancelled=lambda: Fal
                 library_dir: Optional[Path] = None) -> WorkDirs:
     """Project を実行して WorkDirs を返す。例外は呼び出し側で扱う"""
     grouping.build_groups(project, library_dir)
-    issues = analyze(project, project.work_root)
+    issues = analyze(project, project.effective_work_root())
     work = prepare_work(project)
     logger = Logger(sink=log_sink, siril=siril, file=work.log_path)
     try:

@@ -66,10 +66,18 @@ class CalibrationTab(QWidget):
         self.use_dark = QCheckBox("Dark を引く")
         self.use_flat = QCheckBox("Flat で割る")
         self.use_bias_light = QCheckBox("Light に Bias を引く（通常は不要。Dark に含まれます）")
+        self.auto_bias = QCheckBox("Dark が無いときは Bias / RAW の黒レベルを自動で Light に引く（Flat の過補正を防ぐ）")
+        self.auto_bias.setToolTip(
+            "Flat 補正は (Light − オフセット) / Flat でなければなりません。Dark が無いまま Flat で割ると、\n"
+            "黒レベル（オフセット）まで周辺ほど大きく持ち上がり、四隅が明るく浮く過補正になります。\n"
+            "オンにすると、Dark の無いグループでは投入済みの Bias を、Bias も無ければ DSLR RAW の EXIF から読んだ\n"
+            "黒レベル（例: Canon 6D は 2048）を固定値の Bias として Light に引きます。"
+        )
         self.flat_mode = LabeledCombo(FLAT_CALIB_MODES)
         form.addRow(self.use_dark)
         form.addRow(self.use_flat)
         form.addRow(self.use_bias_light)
+        form.addRow(self.auto_bias)
         form.addRow("Flat のキャリブレーション:", self.flat_mode)
         form.addRow(hint("CMOS は Dark Flat（Flat と同じ露出の Dark）を推奨。DSLR は Bias（固定値可）で十分です。"))
         lay.addWidget(box)
@@ -114,6 +122,7 @@ class CalibrationTab(QWidget):
         self.use_dark.setChecked(c.use_dark)
         self.use_flat.setChecked(c.use_flat)
         self.use_bias_light.setChecked(c.use_bias_for_light)
+        self.auto_bias.setChecked(c.auto_bias_without_dark)
         self.flat_mode.set_value(c.flat_calib_mode)
         self.cc_enabled.setChecked(c.cosmetic_enabled)
         self.cc_low.setValue(c.cc_sigma_low)
@@ -129,6 +138,7 @@ class CalibrationTab(QWidget):
         c.use_dark = self.use_dark.isChecked()
         c.use_flat = self.use_flat.isChecked()
         c.use_bias_for_light = self.use_bias_light.isChecked()
+        c.auto_bias_without_dark = self.auto_bias.isChecked()
         c.flat_calib_mode = self.flat_mode.value()
         c.cosmetic_enabled = self.cc_enabled.isChecked()
         c.cc_sigma_low = self.cc_low.value()
